@@ -1,0 +1,369 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxForm xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns="Microsoft.Dynamics.AX.Metadata.V6">
+	<Name>TISCWDAdjustment</Name>
+	<SourceCode>
+		<Methods xmlns="">
+			<Method>
+				<Name>classDeclaration</Name>
+				<Source><![CDATA[
+/// <summary>
+/// SC WD adjustment inquiry / entry form.
+/// </summary>
+[Form]
+public class TISCWDAdjustment extends FormRun
+{
+}
+]]></Source>
+			</Method>
+		</Methods>
+		<DataSources xmlns="">
+			<DataSource>
+				<Name>TISCWDAdjustmentTable</Name>
+				<Methods>
+					<Method>
+						<Name>active</Name>
+						<Source><![CDATA[
+        /// <summary>
+        /// Posted adjustments are read only.
+        /// </summary>
+        public int active()
+        {
+            int     ret = super();
+            boolean editable = TISCWDAdjustmentTable.Posted == NoYes::No;
+
+            this.allowEdit(editable);
+            this.allowDelete(editable);
+
+            return ret;
+        }
+
+]]></Source>
+					</Method>
+				</Methods>
+				<Fields>
+				<Field>
+					<DataField>ProjId</DataField>
+					<Methods>
+						<Method>
+							<Name>lookup</Name>
+							<Source><![CDATA[
+        public void lookup(FormControl _formControl, str _filterStr)
+        {
+            TISCWDAdjustmentTable::lookupProjId(_formControl);
+        }
+
+]]></Source>
+						</Method>
+					</Methods>
+				</Field>
+				<Field>
+					<DataField>CategoryId</DataField>
+					<Methods>
+						<Method>
+							<Name>lookup</Name>
+							<Source><![CDATA[
+        public void lookup(FormControl _formControl, str _filterStr)
+        {
+            TISCWDAdjustmentTable::lookupCategoryId(_formControl);
+        }
+
+]]></Source>
+						</Method>
+					</Methods>
+				</Field>
+				<Field>
+					<DataField>PurchId</DataField>
+					<Methods>
+						<Method>
+							<Name>lookup</Name>
+							<Source><![CDATA[
+        public void lookup(FormControl _formControl, str _filterStr)
+        {
+            TISCWDAdjustmentTable::lookupPurchId(_formControl, TISCWDAdjustmentTable.ProjId);
+        }
+
+]]></Source>
+						</Method>
+					</Methods>
+				</Field>
+				<Field>
+					<DataField>PurchLineNum</DataField>
+					<Methods>
+						<Method>
+							<Name>lookup</Name>
+							<Source><![CDATA[
+        public void lookup(FormControl _formControl, str _filterStr)
+        {
+            TISCWDAdjustmentTable::lookupPurchLineNum(_formControl, TISCWDAdjustmentTable.PurchId);
+        }
+
+]]></Source>
+						</Method>
+					</Methods>
+				</Field>
+				</Fields>
+			</DataSource>
+		</DataSources>
+		<DataControls xmlns="" />
+		<Members xmlns="" />
+	</SourceCode>
+	<DataSources>
+		<AxFormDataSource xmlns="">
+			<Name>TISCWDAdjustmentTable</Name>
+			<Table>TISCWDAdjustmentTable</Table>
+			<Fields>
+				<AxFormDataSourceField>
+					<DataField>TransDate</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>ProjId</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>CategoryId</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>Qty</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>CostPrice</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>Amount</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>PurchId</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>PurchLineNum</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>Voucher</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>JournalNum</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>Posted</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>Log</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>CreatedBy</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>CreatedDateTime</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>DataAreaId</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>RecId</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>TableId</DataField>
+				</AxFormDataSourceField>
+			</Fields>
+			<ReferencedDataSources />
+			<InsertIfEmpty>No</InsertIfEmpty>
+			<DataSourceLinks />
+			<DerivedDataSources />
+		</AxFormDataSource>
+	</DataSources>
+	<Design>
+		<Caption xmlns="">SC WD adjustment</Caption>
+		<DataSource xmlns="">TISCWDAdjustmentTable</DataSource>
+		<Pattern xmlns="">SimpleList</Pattern>
+		<PatternVersion xmlns="">1.1</PatternVersion>
+		<Style xmlns="">SimpleList</Style>
+		<TitleDataSource xmlns="">TISCWDAdjustmentTable</TitleDataSource>
+		<Controls xmlns="">
+			<AxFormControl xmlns=""
+				i:type="AxFormActionPaneControl">
+				<Name>ActionPane</Name>
+				<Type>ActionPane</Type>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls />
+			</AxFormControl>
+			<AxFormControl xmlns=""
+				i:type="AxFormGroupControl">
+				<Name>CustomFilterGroup</Name>
+				<Pattern>CustomAndQuickFilters</Pattern>
+				<PatternVersion>1.1</PatternVersion>
+				<Type>Group</Type>
+				<WidthMode>SizeToAvailable</WidthMode>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls>
+					<AxFormControl>
+						<Name>QuickFilter</Name>
+						<FormControlExtension>
+							<Name>QuickFilterControl</Name>
+							<ExtensionComponents />
+							<ExtensionOptions>
+								<AxFormControlExtensionProperty>
+									<Name>targetControlName</Name>
+									<Type>String</Type>
+									<Value>Grid</Value>
+								</AxFormControlExtensionProperty>
+								<AxFormControlExtensionProperty>
+									<Name>placeholderText</Name>
+									<Type>String</Type>
+								</AxFormControlExtensionProperty>
+								<AxFormControlExtensionProperty>
+									<Name>defaultColumnName</Name>
+									<Type>String</Type>
+									<Value>Grid_ProjId</Value>
+								</AxFormControlExtensionProperty>
+							</ExtensionOptions>
+						</FormControlExtension>
+					</AxFormControl>
+				</Controls>
+				<ArrangeMethod>HorizontalLeft</ArrangeMethod>
+				<FrameType>None</FrameType>
+				<Style>CustomFilter</Style>
+				<ViewEditMode>Edit</ViewEditMode>
+			</AxFormControl>
+			<AxFormControl xmlns=""
+				i:type="AxFormGridControl">
+				<Name>Grid</Name>
+				<Type>Grid</Type>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls>
+						<AxFormControl xmlns=""
+							i:type="AxFormDateControl">
+							<Name>Grid_TransDate</Name>
+							<Type>Date</Type>
+							<FormControlExtension
+								i:nil="true" />
+							<DataField>TransDate</DataField>
+							<DataSource>TISCWDAdjustmentTable</DataSource>
+						</AxFormControl>
+						<AxFormControl xmlns=""
+							i:type="AxFormStringControl">
+							<Name>Grid_ProjId</Name>
+							<Type>String</Type>
+							<FormControlExtension
+								i:nil="true" />
+							<DataField>ProjId</DataField>
+							<DataSource>TISCWDAdjustmentTable</DataSource>
+						</AxFormControl>
+						<AxFormControl xmlns=""
+							i:type="AxFormStringControl">
+							<Name>Grid_CategoryId</Name>
+							<Type>String</Type>
+							<FormControlExtension
+								i:nil="true" />
+							<DataField>CategoryId</DataField>
+							<DataSource>TISCWDAdjustmentTable</DataSource>
+						</AxFormControl>
+						<AxFormControl xmlns=""
+							i:type="AxFormRealControl">
+							<Name>Grid_Qty</Name>
+							<Type>Real</Type>
+							<FormControlExtension
+								i:nil="true" />
+							<DataField>Qty</DataField>
+							<DataSource>TISCWDAdjustmentTable</DataSource>
+						</AxFormControl>
+						<AxFormControl xmlns=""
+							i:type="AxFormRealControl">
+							<Name>Grid_CostPrice</Name>
+							<Type>Real</Type>
+							<FormControlExtension
+								i:nil="true" />
+							<DataField>CostPrice</DataField>
+							<DataSource>TISCWDAdjustmentTable</DataSource>
+						</AxFormControl>
+						<AxFormControl xmlns=""
+							i:type="AxFormRealControl">
+							<Name>Grid_Amount</Name>
+							<Type>Real</Type>
+							<FormControlExtension
+								i:nil="true" />
+							<DataField>Amount</DataField>
+							<DataSource>TISCWDAdjustmentTable</DataSource>
+						</AxFormControl>
+						<AxFormControl xmlns=""
+							i:type="AxFormStringControl">
+							<Name>Grid_PurchId</Name>
+							<Type>String</Type>
+							<FormControlExtension
+								i:nil="true" />
+							<DataField>PurchId</DataField>
+							<DataSource>TISCWDAdjustmentTable</DataSource>
+						</AxFormControl>
+						<AxFormControl xmlns=""
+							i:type="AxFormRealControl">
+							<Name>Grid_PurchLineNum</Name>
+							<Type>Real</Type>
+							<FormControlExtension
+								i:nil="true" />
+							<DataField>PurchLineNum</DataField>
+							<DataSource>TISCWDAdjustmentTable</DataSource>
+						</AxFormControl>
+						<AxFormControl xmlns=""
+							i:type="AxFormStringControl">
+							<Name>Grid_Voucher</Name>
+							<Type>String</Type>
+							<FormControlExtension
+								i:nil="true" />
+							<DataField>Voucher</DataField>
+							<DataSource>TISCWDAdjustmentTable</DataSource>
+						</AxFormControl>
+						<AxFormControl xmlns=""
+							i:type="AxFormStringControl">
+							<Name>Grid_JournalNum</Name>
+							<Type>String</Type>
+							<FormControlExtension
+								i:nil="true" />
+							<DataField>JournalNum</DataField>
+							<DataSource>TISCWDAdjustmentTable</DataSource>
+						</AxFormControl>
+						<AxFormControl xmlns=""
+							i:type="AxFormComboBoxControl">
+							<Name>Grid_Posted</Name>
+							<Type>ComboBox</Type>
+							<FormControlExtension
+								i:nil="true" />
+							<DataField>Posted</DataField>
+							<DataSource>TISCWDAdjustmentTable</DataSource>
+							<Items />
+						</AxFormControl>
+						<AxFormControl xmlns=""
+							i:type="AxFormStringControl">
+							<Name>Grid_CreatedBy</Name>
+							<Type>String</Type>
+							<FormControlExtension
+								i:nil="true" />
+							<DataField>CreatedBy</DataField>
+							<DataSource>TISCWDAdjustmentTable</DataSource>
+						</AxFormControl>
+						<AxFormControl xmlns=""
+							i:type="AxFormDateTimeControl">
+							<Name>Grid_CreatedDateTime</Name>
+							<Type>DateTime</Type>
+							<FormControlExtension
+								i:nil="true" />
+							<DataField>CreatedDateTime</DataField>
+							<DataSource>TISCWDAdjustmentTable</DataSource>
+						</AxFormControl>
+						<AxFormControl xmlns=""
+							i:type="AxFormStringControl">
+							<Name>Grid_Log</Name>
+							<Type>String</Type>
+							<FormControlExtension
+								i:nil="true" />
+							<DataField>Log</DataField>
+							<DataSource>TISCWDAdjustmentTable</DataSource>
+						</AxFormControl>
+				</Controls>
+				<DataSource>TISCWDAdjustmentTable</DataSource>
+				<Style>Tabular</Style>
+			</AxFormControl>
+		</Controls>
+	</Design>
+	<Parts />
+</AxForm>

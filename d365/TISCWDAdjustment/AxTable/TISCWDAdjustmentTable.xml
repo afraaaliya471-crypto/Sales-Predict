@@ -1,0 +1,780 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxTable xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>TISCWDAdjustmentTable</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// SC WD adjustment transactions. Each record is posted to the expense journal and,
+/// after successful posting, updates PurchLine.TICumulativeQty for the PO line.
+/// </summary>
+public class TISCWDAdjustmentTable extends common
+{
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>categoryPrefix</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Only project categories starting with this prefix are allowed.
+    /// </summary>
+    public static ProjCategoryId categoryPrefix()
+    {
+        return 'SC_Provision';
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>purchPoolId</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Only purchase orders in this pool are allowed.
+    /// </summary>
+    public static PurchPoolId purchPoolId()
+    {
+        return 'P_SWO';
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>isProjStatusAllowed</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Project statuses that accept SC WD adjustments.
+    /// </summary>
+    public static boolean isProjStatusAllowed(ProjStatus _status)
+    {
+        return _status == ProjStatus::InProcess;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>isCategoryAllowed</Name>
+				<Source><![CDATA[
+    public static boolean isCategoryAllowed(ProjCategoryId _categoryId)
+    {
+        ProjCategoryId prefix = TISCWDAdjustmentTable::categoryPrefix();
+
+        return _categoryId && subStr(_categoryId, 1, strLen(prefix)) == prefix;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>blockedFromDate</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// First day of the current month; this date and later are not accepted.
+    /// </summary>
+    public static TransDate blockedFromDate()
+    {
+        return dateStartMth(DateTimeUtil::getSystemDate(DateTimeUtil::getUserPreferredTimeZone()));
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>initValue</Name>
+				<Source><![CDATA[
+    public void initValue()
+    {
+        super();
+
+        this.Posted = NoYes::No;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>calcAmount</Name>
+				<Source><![CDATA[
+    public void calcAmount()
+    {
+        this.Amount = this.Qty * this.CostPrice;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>modifiedField</Name>
+				<Source><![CDATA[
+    public void modifiedField(FieldId _fieldId)
+    {
+        super(_fieldId);
+
+        switch (_fieldId)
+        {
+            case fieldNum(TISCWDAdjustmentTable, Qty):
+            case fieldNum(TISCWDAdjustmentTable, CostPrice):
+                this.calcAmount();
+                break;
+
+            case fieldNum(TISCWDAdjustmentTable, ProjId):
+                this.PurchId      = '';
+                this.PurchLineNum = 0;
+                break;
+
+            case fieldNum(TISCWDAdjustmentTable, PurchId):
+                this.PurchLineNum = 0;
+                break;
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>insert</Name>
+				<Source><![CDATA[
+    public void insert()
+    {
+        this.calcAmount();
+
+        super();
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>update</Name>
+				<Source><![CDATA[
+    public void update()
+    {
+        this.calcAmount();
+
+        super();
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>validateTransDate</Name>
+				<Source><![CDATA[
+    public boolean validateTransDate()
+    {
+        TransDate blockedFrom = TISCWDAdjustmentTable::blockedFromDate();
+
+        if (!this.TransDate)
+        {
+            return checkFailed("Date must be specified.");
+        }
+
+        if (this.TransDate >= blockedFrom)
+        {
+            return checkFailed(strFmt("Date %1 is not allowed. Current and future months are not accepted; the date must be before %2.", this.TransDate, blockedFrom));
+        }
+
+        return true;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>validateProjId</Name>
+				<Source><![CDATA[
+    public boolean validateProjId()
+    {
+        ProjTable projTable;
+
+        if (!this.ProjId)
+        {
+            return checkFailed("Project number must be specified.");
+        }
+
+        // ProjTable is company specific, so find() only returns projects of the current entity.
+        projTable = ProjTable::find(this.ProjId);
+
+        if (!projTable)
+        {
+            return checkFailed(strFmt("Project %1 does not exist in entity %2.", this.ProjId, curExt()));
+        }
+
+        if (!TISCWDAdjustmentTable::isProjStatusAllowed(projTable.Status))
+        {
+            return checkFailed(strFmt("Project %1 has status %2. Only projects with status %3 are allowed.", this.ProjId, projTable.Status, ProjStatus::InProcess));
+        }
+
+        return true;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>validateCategoryId</Name>
+				<Source><![CDATA[
+    public boolean validateCategoryId()
+    {
+        if (!this.CategoryId)
+        {
+            return checkFailed("Category must be specified.");
+        }
+
+        if (!ProjCategory::exist(this.CategoryId))
+        {
+            return checkFailed(strFmt("Category %1 does not exist.", this.CategoryId));
+        }
+
+        if (!TISCWDAdjustmentTable::isCategoryAllowed(this.CategoryId))
+        {
+            return checkFailed(strFmt("Category %1 is not allowed. Only categories starting with %2 are accepted.", this.CategoryId, TISCWDAdjustmentTable::categoryPrefix()));
+        }
+
+        return true;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>validateQty</Name>
+				<Source><![CDATA[
+    public boolean validateQty()
+    {
+        if (!this.Qty)
+        {
+            return checkFailed("Quantity must be specified and cannot be zero.");
+        }
+
+        return true;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>validateCostPrice</Name>
+				<Source><![CDATA[
+    public boolean validateCostPrice()
+    {
+        if (!this.CostPrice)
+        {
+            return checkFailed("Cost price must be specified and cannot be zero.");
+        }
+
+        return true;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>validatePurchId</Name>
+				<Source><![CDATA[
+    public boolean validatePurchId()
+    {
+        PurchTable purchTable;
+
+        if (!this.PurchId)
+        {
+            return checkFailed("PO number must be specified.");
+        }
+
+        purchTable = PurchTable::find(this.PurchId);
+
+        if (!purchTable)
+        {
+            return checkFailed(strFmt("PO %1 does not exist.", this.PurchId));
+        }
+
+        if (purchTable.ProjId != this.ProjId)
+        {
+            return checkFailed(strFmt("PO %1 does not belong to project %2.", this.PurchId, this.ProjId));
+        }
+
+        if (purchTable.PurchPoolId != TISCWDAdjustmentTable::purchPoolId())
+        {
+            return checkFailed(strFmt("PO %1 is in pool %2. Only POs in pool %3 are allowed.", this.PurchId, purchTable.PurchPoolId, TISCWDAdjustmentTable::purchPoolId()));
+        }
+
+        return true;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>validatePurchLineNum</Name>
+				<Source><![CDATA[
+    public boolean validatePurchLineNum()
+    {
+        if (!this.PurchLineNum)
+        {
+            return checkFailed("PO line number must be specified.");
+        }
+
+        if (!PurchLine::find(this.PurchId, this.PurchLineNum))
+        {
+            return checkFailed(strFmt("Line %1 does not exist on PO %2.", this.PurchLineNum, this.PurchId));
+        }
+
+        return true;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>validateField</Name>
+				<Source><![CDATA[
+    public boolean validateField(FieldId _fieldIdToCheck)
+    {
+        boolean ret = super(_fieldIdToCheck);
+
+        if (ret)
+        {
+            switch (_fieldIdToCheck)
+            {
+                case fieldNum(TISCWDAdjustmentTable, TransDate):
+                    ret = this.validateTransDate();
+                    break;
+
+                case fieldNum(TISCWDAdjustmentTable, ProjId):
+                    ret = this.validateProjId();
+                    break;
+
+                case fieldNum(TISCWDAdjustmentTable, CategoryId):
+                    ret = this.validateCategoryId();
+                    break;
+
+                case fieldNum(TISCWDAdjustmentTable, Qty):
+                    ret = this.validateQty();
+                    break;
+
+                case fieldNum(TISCWDAdjustmentTable, CostPrice):
+                    ret = this.validateCostPrice();
+                    break;
+
+                case fieldNum(TISCWDAdjustmentTable, PurchId):
+                    ret = this.validatePurchId();
+                    break;
+
+                case fieldNum(TISCWDAdjustmentTable, PurchLineNum):
+                    ret = this.validatePurchLineNum();
+                    break;
+            }
+        }
+
+        return ret;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>validateWrite</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Re-runs every field rule so records created by import (Excel / data entity) are validated too.
+    /// </summary>
+    public boolean validateWrite()
+    {
+        boolean ret = super();
+
+        if (this.RecId && this.orig().Posted == NoYes::Yes)
+        {
+            return checkFailed(strFmt("The adjustment is already posted with voucher %1 and cannot be changed.", this.orig().Voucher));
+        }
+
+        ret = this.validateTransDate()      && ret;
+        ret = this.validateProjId()         && ret;
+        ret = this.validateCategoryId()     && ret;
+        ret = this.validateQty()            && ret;
+        ret = this.validateCostPrice()      && ret;
+        ret = this.validatePurchId()        && ret;
+        ret = this.validatePurchLineNum()   && ret;
+
+        return ret;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>validateDelete</Name>
+				<Source><![CDATA[
+    public boolean validateDelete()
+    {
+        boolean ret = super();
+
+        if (ret && this.Posted == NoYes::Yes)
+        {
+            ret = checkFailed(strFmt("The adjustment is already posted with voucher %1 and cannot be deleted.", this.Voucher));
+        }
+
+        return ret;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>lookupProjId</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Project lookup limited to projects with an allowed status.
+    /// </summary>
+    public static void lookupProjId(FormControl _ctrl)
+    {
+        SysTableLookup          sysTableLookup = SysTableLookup::newParameters(tableNum(ProjTable), _ctrl);
+        Query                   query = new Query();
+        QueryBuildDataSource    qbds = query.addDataSource(tableNum(ProjTable));
+
+        qbds.addRange(fieldNum(ProjTable, Status)).value(queryValue(ProjStatus::InProcess));
+
+        sysTableLookup.addLookupfield(fieldNum(ProjTable, ProjId), true);
+        sysTableLookup.addLookupfield(fieldNum(ProjTable, Name));
+        sysTableLookup.addLookupfield(fieldNum(ProjTable, Status));
+        sysTableLookup.parmQuery(query);
+        sysTableLookup.performFormLookup();
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>lookupCategoryId</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Category lookup limited to SC_Provision* categories.
+    /// </summary>
+    public static void lookupCategoryId(FormControl _ctrl)
+    {
+        SysTableLookup          sysTableLookup = SysTableLookup::newParameters(tableNum(ProjCategory), _ctrl);
+        Query                   query = new Query();
+        QueryBuildDataSource    qbds = query.addDataSource(tableNum(ProjCategory));
+
+        qbds.addRange(fieldNum(ProjCategory, CategoryId)).value(strFmt('%1*', queryValue(TISCWDAdjustmentTable::categoryPrefix())));
+
+        sysTableLookup.addLookupfield(fieldNum(ProjCategory, CategoryId), true);
+        sysTableLookup.addLookupfield(fieldNum(ProjCategory, Name));
+        sysTableLookup.parmQuery(query);
+        sysTableLookup.performFormLookup();
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>lookupPurchId</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// PO lookup limited to the selected project and the P_SWO pool.
+    /// </summary>
+    public static void lookupPurchId(FormControl _ctrl, ProjId _projId)
+    {
+        SysTableLookup          sysTableLookup = SysTableLookup::newParameters(tableNum(PurchTable), _ctrl);
+        Query                   query = new Query();
+        QueryBuildDataSource    qbds = query.addDataSource(tableNum(PurchTable));
+
+        qbds.addRange(fieldNum(PurchTable, ProjId)).value(SysQuery::value(_projId));
+        qbds.addRange(fieldNum(PurchTable, PurchPoolId)).value(queryValue(TISCWDAdjustmentTable::purchPoolId()));
+
+        sysTableLookup.addLookupfield(fieldNum(PurchTable, PurchId), true);
+        sysTableLookup.addLookupfield(fieldNum(PurchTable, PurchName));
+        sysTableLookup.addLookupfield(fieldNum(PurchTable, OrderAccount));
+        sysTableLookup.addLookupfield(fieldNum(PurchTable, PurchStatus));
+        sysTableLookup.parmQuery(query);
+        sysTableLookup.performFormLookup();
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>lookupPurchLineNum</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// PO line lookup for the selected PO.
+    /// </summary>
+    public static void lookupPurchLineNum(FormControl _ctrl, PurchId _purchId)
+    {
+        SysTableLookup          sysTableLookup = SysTableLookup::newParameters(tableNum(PurchLine), _ctrl);
+        Query                   query = new Query();
+        QueryBuildDataSource    qbds = query.addDataSource(tableNum(PurchLine));
+
+        qbds.addRange(fieldNum(PurchLine, PurchId)).value(SysQuery::value(_purchId));
+        qbds.addRange(fieldNum(PurchLine, IsDeleted)).value(queryValue(NoYes::No));
+
+        sysTableLookup.addLookupfield(fieldNum(PurchLine, LineNumber), true);
+        sysTableLookup.addLookupfield(fieldNum(PurchLine, ItemId));
+        sysTableLookup.addLookupfield(fieldNum(PurchLine, Name));
+        sysTableLookup.addLookupfield(fieldNum(PurchLine, PurchQty));
+        sysTableLookup.parmQuery(query);
+        sysTableLookup.performFormLookup();
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+	<CreatedBy>Yes</CreatedBy>
+	<CreatedDateTime>Yes</CreatedDateTime>
+	<FormRef>TISCWDAdjustment</FormRef>
+	<Label>SC WD adjustment</Label>
+	<SubscriberAccessLevel>
+		<Read>Allow</Read>
+	</SubscriberAccessLevel>
+	<TableGroup>Transaction</TableGroup>
+	<TitleField1>ProjId</TitleField1>
+	<TitleField2>PurchId</TitleField2>
+	<DeleteActions />
+	<FieldGroups>
+		<AxTableFieldGroup>
+			<Name>AutoReport</Name>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoLookup</Name>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoIdentification</Name>
+			<AutoPopulate>Yes</AutoPopulate>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoSummary</Name>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoBrowse</Name>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>Overview</Name>
+			<Label>Overview</Label>
+			<Fields>
+				<AxTableFieldGroupField>
+					<DataField>TransDate</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>ProjId</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>CategoryId</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>Qty</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>CostPrice</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>Amount</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>PurchId</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>PurchLineNum</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>Voucher</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>JournalNum</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>Posted</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>Log</DataField>
+				</AxTableFieldGroupField>
+			</Fields>
+		</AxTableFieldGroup>
+	</FieldGroups>
+	<Fields>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldDate">
+			<Name>TransDate</Name>
+			<ExtendedDataType>TransDate</ExtendedDataType>
+			<Label>Date</Label>
+			<Mandatory>Yes</Mandatory>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>ProjId</Name>
+			<ExtendedDataType>ProjId</ExtendedDataType>
+			<Label>Project number</Label>
+			<Mandatory>Yes</Mandatory>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>CategoryId</Name>
+			<ExtendedDataType>ProjCategoryId</ExtendedDataType>
+			<Label>Category</Label>
+			<Mandatory>Yes</Mandatory>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>Qty</Name>
+			<ExtendedDataType>Qty</ExtendedDataType>
+			<Label>Quantity</Label>
+			<Mandatory>Yes</Mandatory>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>CostPrice</Name>
+			<ExtendedDataType>AmountCur</ExtendedDataType>
+			<Label>Cost price</Label>
+			<Mandatory>Yes</Mandatory>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>Amount</Name>
+			<AllowEdit>No</AllowEdit>
+			<AllowEditOnCreate>No</AllowEditOnCreate>
+			<ExtendedDataType>AmountCur</ExtendedDataType>
+			<Label>Amount</Label>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PurchId</Name>
+			<ExtendedDataType>PurchId</ExtendedDataType>
+			<Label>PO number</Label>
+			<Mandatory>Yes</Mandatory>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>PurchLineNum</Name>
+			<ExtendedDataType>LineNum</ExtendedDataType>
+			<Label>PO line number</Label>
+			<Mandatory>Yes</Mandatory>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>Voucher</Name>
+			<AllowEdit>No</AllowEdit>
+			<AllowEditOnCreate>No</AllowEditOnCreate>
+			<ExtendedDataType>Voucher</ExtendedDataType>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>JournalNum</Name>
+			<AllowEdit>No</AllowEdit>
+			<AllowEditOnCreate>No</AllowEditOnCreate>
+			<ExtendedDataType>LedgerJournalId</ExtendedDataType>
+			<Label>Journal number</Label>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldEnum">
+			<Name>Posted</Name>
+			<AllowEdit>No</AllowEdit>
+			<AllowEditOnCreate>No</AllowEditOnCreate>
+			<ExtendedDataType>NoYesId</ExtendedDataType>
+			<Label>Posted</Label>
+			<EnumType>NoYes</EnumType>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>Log</Name>
+			<AllowEdit>No</AllowEdit>
+			<AllowEditOnCreate>No</AllowEditOnCreate>
+			<ExtendedDataType>Notes</ExtendedDataType>
+			<Label>Log / Error message</Label>
+		</AxTableField>
+	</Fields>
+	<FullTextIndexes />
+	<Indexes>
+		<AxTableIndex>
+			<Name>PurchLineIdx</Name>
+			<AllowDuplicates>Yes</AllowDuplicates>
+			<Fields>
+				<AxTableIndexField>
+					<DataField>PurchId</DataField>
+				</AxTableIndexField>
+				<AxTableIndexField>
+					<DataField>PurchLineNum</DataField>
+				</AxTableIndexField>
+			</Fields>
+		</AxTableIndex>
+		<AxTableIndex>
+			<Name>ProjDateIdx</Name>
+			<AllowDuplicates>Yes</AllowDuplicates>
+			<Fields>
+				<AxTableIndexField>
+					<DataField>ProjId</DataField>
+				</AxTableIndexField>
+				<AxTableIndexField>
+					<DataField>TransDate</DataField>
+				</AxTableIndexField>
+			</Fields>
+		</AxTableIndex>
+	</Indexes>
+	<Mappings />
+	<Relations>
+		<AxTableRelation>
+			<Name>ProjTable</Name>
+			<Cardinality>ZeroMore</Cardinality>
+			<RelatedTable>ProjTable</RelatedTable>
+			<RelatedTableCardinality>ExactlyOne</RelatedTableCardinality>
+			<RelationshipType>Association</RelationshipType>
+			<Constraints>
+				<AxTableRelationConstraint xmlns=""
+					i:type="AxTableRelationConstraintField">
+					<Name>ProjId</Name>
+					<Field>ProjId</Field>
+					<RelatedField>ProjId</RelatedField>
+				</AxTableRelationConstraint>
+			</Constraints>
+		</AxTableRelation>
+		<AxTableRelation>
+			<Name>ProjCategory</Name>
+			<Cardinality>ZeroMore</Cardinality>
+			<RelatedTable>ProjCategory</RelatedTable>
+			<RelatedTableCardinality>ExactlyOne</RelatedTableCardinality>
+			<RelationshipType>Association</RelationshipType>
+			<Constraints>
+				<AxTableRelationConstraint xmlns=""
+					i:type="AxTableRelationConstraintField">
+					<Name>CategoryId</Name>
+					<Field>CategoryId</Field>
+					<RelatedField>CategoryId</RelatedField>
+				</AxTableRelationConstraint>
+			</Constraints>
+		</AxTableRelation>
+		<AxTableRelation>
+			<Name>PurchTable</Name>
+			<Cardinality>ZeroMore</Cardinality>
+			<RelatedTable>PurchTable</RelatedTable>
+			<RelatedTableCardinality>ExactlyOne</RelatedTableCardinality>
+			<RelationshipType>Association</RelationshipType>
+			<Constraints>
+				<AxTableRelationConstraint xmlns=""
+					i:type="AxTableRelationConstraintField">
+					<Name>PurchId</Name>
+					<Field>PurchId</Field>
+					<RelatedField>PurchId</RelatedField>
+				</AxTableRelationConstraint>
+			</Constraints>
+		</AxTableRelation>
+		<AxTableRelation>
+			<Name>PurchLine</Name>
+			<Cardinality>ZeroMore</Cardinality>
+			<RelatedTable>PurchLine</RelatedTable>
+			<RelatedTableCardinality>ExactlyOne</RelatedTableCardinality>
+			<RelationshipType>Association</RelationshipType>
+			<Constraints>
+				<AxTableRelationConstraint xmlns=""
+					i:type="AxTableRelationConstraintField">
+					<Name>PurchId</Name>
+					<Field>PurchId</Field>
+					<RelatedField>PurchId</RelatedField>
+				</AxTableRelationConstraint>
+				<AxTableRelationConstraint xmlns=""
+					i:type="AxTableRelationConstraintField">
+					<Name>PurchLineNum</Name>
+					<Field>PurchLineNum</Field>
+					<RelatedField>LineNumber</RelatedField>
+				</AxTableRelationConstraint>
+			</Constraints>
+		</AxTableRelation>
+		<AxTableRelation>
+			<Name>LedgerJournalTable</Name>
+			<Cardinality>ZeroMore</Cardinality>
+			<RelatedTable>LedgerJournalTable</RelatedTable>
+			<RelatedTableCardinality>ZeroOne</RelatedTableCardinality>
+			<RelationshipType>Association</RelationshipType>
+			<Constraints>
+				<AxTableRelationConstraint xmlns=""
+					i:type="AxTableRelationConstraintField">
+					<Name>JournalNum</Name>
+					<Field>JournalNum</Field>
+					<RelatedField>JournalNum</RelatedField>
+				</AxTableRelationConstraint>
+			</Constraints>
+		</AxTableRelation>
+	</Relations>
+	<StateMachines />
+</AxTable>

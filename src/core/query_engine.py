@@ -1125,6 +1125,8 @@ def _handle_forecast(question: str, plan: dict, debug: dict, skip_llm_explain: b
             model=model,
             selection=selection,
             wape=winner_wape,
+            use_llm_explanation=True,  # Enable LLM-generated insights
+            llm_model="deepseek-r1:7b",  # Use reasoning model for analysis
         )
         models = []
         winner_id = None
@@ -1140,6 +1142,7 @@ def _handle_forecast(question: str, plan: dict, debug: dict, skip_llm_explain: b
                 window["end"],
                 grain="month" if use_monthly else "day",
                 model=name,
+                use_llm_explanation=False,  # Use fast Python templates for alternative models
             )
             model_id = candidate.get("id") or name
             is_winner = name == model

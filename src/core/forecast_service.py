@@ -583,6 +583,68 @@ def _ets_result(historical_df: pd.DataFrame, days_ahead: int) -> dict:
     }
 
 
+def forecast_with_croston_sba(historical_df: pd.DataFrame, days_ahead: int = 30) -> dict:
+    """Croston SBA — bias-corrected forecast for intermittent demand (many zero-sale days)."""
+    try:
+        from statsforecast.models import CrostonSBA
+    except ImportError:
+        return {"error": "statsforecast not installed. Run: pip install statsforecast", "forecast": []}
+    daily = _daily_quantity(historical_df)
+    if len(daily) < 14:
+        return {"error": "Croston needs more daily history", "forecast": []}
+    model = CrostonSBA()
+    model.fit(y=daily.astype(float).values)
+    pred = model.predict(h=days_ahead)["mean"]
+    start = daily.index.max() + timedelta(days=1)
+    dates = pd.date_range(start, periods=days_ahead)
+    forecast_data = [
+        {
+            "date": d,
+            "quantity": max(0.0, float(v)),
+            "lower": max(0.0, float(v) * 0.5),
+            "upper": max(0.0, float(v)) * 1.5,
+        }
+        for d, v in zip(dates, pred)
+    ]
+    return {
+        "historical": historical_df[["date", "quantity"]].to_dict("records"),
+        "forecast": forecast_data,
+        "model": "Croston (SBA)",
+        "days_ahead": days_ahead,
+    }
+
+
+def forecast_with_tsb(historical_df: pd.DataFrame, days_ahead: int = 30) -> dict:
+    """TSB — Croston variant that smooths demand probability instead of inter-demand interval."""
+    try:
+        from statsforecast.models import TSB
+    except ImportError:
+        return {"error": "statsforecast not installed. Run: pip install statsforecast", "forecast": []}
+    daily = _daily_quantity(historical_df)
+    if len(daily) < 14:
+        return {"error": "TSB needs more daily history", "forecast": []}
+    model = TSB(alpha_d=0.2, alpha_p=0.2)
+    model.fit(y=daily.astype(float).values)
+    pred = model.predict(h=days_ahead)["mean"]
+    start = daily.index.max() + timedelta(days=1)
+    dates = pd.date_range(start, periods=days_ahead)
+    forecast_data = [
+        {
+            "date": d,
+            "quantity": max(0.0, float(v)),
+            "lower": max(0.0, float(v) * 0.5),
+            "upper": max(0.0, float(v)) * 1.5,
+        }
+        for d, v in zip(dates, pred)
+    ]
+    return {
+        "historical": historical_df[["date", "quantity"]].to_dict("records"),
+        "forecast": forecast_data,
+        "model": "TSB",
+        "days_ahead": days_ahead,
+    }
+
+
 def _backtest_ets(historical_df: pd.DataFrame, holdout: int) -> float | None:
     """Score ETS on monthly totals inside the holdout window (production metric)."""
     if holdout <= 0 or len(historical_df) < holdout + 90:
@@ -644,6 +706,42 @@ def _backtest_prophet(df: pd.DataFrame, holdout: int, monthly: bool = False) -> 
     return _wape(actual["quantity"].reset_index(drop=True), predicted["yhat"].reset_index(drop=True))
 
 
+def _backtest_croston_sba(y: pd.Series, holdout: int) -> float | None:
+    if holdout <= 0 or len(y) <= holdout + 14:
+        return None
+    try:
+        from statsforecast.models import CrostonSBA
+    except ImportError:
+        return None
+    train = y.iloc[:-holdout].astype(float).values
+    actual = y.iloc[-holdout:].reset_index(drop=True)
+    try:
+        model = CrostonSBA()
+        model.fit(y=train)
+        pred = model.predict(h=holdout)["mean"]
+    except Exception:
+        return None
+    return _wape(actual, pd.Series(pred))
+
+
+def _backtest_tsb(y: pd.Series, holdout: int) -> float | None:
+    if holdout <= 0 or len(y) <= holdout + 14:
+        return None
+    try:
+        from statsforecast.models import TSB
+    except ImportError:
+        return None
+    train = y.iloc[:-holdout].astype(float).values
+    actual = y.iloc[-holdout:].reset_index(drop=True)
+    try:
+        model = TSB(alpha_d=0.2, alpha_p=0.2)
+        model.fit(y=train)
+        pred = model.predict(h=holdout)["mean"]
+    except Exception:
+        return None
+    return _wape(actual, pd.Series(pred))
+
+
 def _prediction_model_label(model: str | None) -> str:
     names = {
         "Seasonal naive (7-day)": "Baseline (last week)",
@@ -651,6 +749,8 @@ def _prediction_model_label(model: str | None) -> str:
         "Moving average (7-day)": "Moving average",
         "Prophet": "Prophet",
         "ETS (Holt-Winters)": "ETS",
+        "Croston (SBA)": "Croston (SBA)",
+        "TSB": "TSB",
     }
     if not model:
         return "Forecast"
@@ -666,6 +766,10 @@ def _honest_method_note(model: str | None) -> str:
         return "Prophet fit on sold units (trend + seasonality). Gray line is last year for comparison."
     if model and model.startswith("ETS"):
         return "ETS (Holt-Winters) fit on monthly sold units. Gray line is last year for comparison."
+    if model and model.startswith("Croston"):
+        return "Croston (SBA) fit on daily sold units — for intermittent demand (many zero-sale days)."
+    if model and model == "TSB":
+        return "TSB fit on daily sold units — Croston variant using demand probability instead of sale gaps."
     if model and "Moving average" in model:
         return "Flat recent average — short-horizon only."
     return "Built from sold history in DuckDB only."
@@ -816,6 +920,141 @@ def explain_forecast_basis(
     }
 
 
+def explain_forecast_with_llm(
+    historical: list,
+    labels: list,
+    actual: list,
+    forecast_vals: list,
+    yoy: list,
+    model: str | None,
+    selection: str | None,
+    wape: float | None,
+    llm_model: str = "deepseek-r1:7b",
+) -> dict:
+    """
+    Generate forecast explanation using LLM analysis of the data.
+    
+    The LLM receives structured data and generates natural language insights.
+    Falls back to Python-based explanation if LLM fails.
+    """
+    from src.core.llm_router import call_llm
+    
+    # Prepare structured data summary for the LLM
+    data_summary = {
+        "model_used": model or "Unknown",
+        "selection_reason": selection or "N/A",
+        "accuracy_wape": f"{wape:.1f}%" if wape is not None else "N/A",
+        "forecast_periods": len(labels),
+        "labels": labels,
+        "historical_actual": actual,
+        "forecast_values": forecast_vals,
+        "yoy_change_percent": yoy,
+    }
+    
+    # Calculate key statistics for the LLM
+    if actual:
+        avg_actual = sum(actual) / len(actual)
+        max_actual_idx = actual.index(max(actual))
+        min_actual_idx = actual.index(min(actual))
+        strongest_month = f"{labels[max_actual_idx]} ({int(actual[max_actual_idx])} units)"
+        weakest_month = f"{labels[min_actual_idx]} ({int(actual[min_actual_idx])} units)"
+    else:
+        avg_actual = 0
+        strongest_month = "N/A"
+        weakest_month = "N/A"
+    
+    if forecast_vals:
+        avg_forecast = sum(forecast_vals) / len(forecast_vals)
+        forecast_change = ((avg_forecast - avg_actual) / avg_actual * 100) if avg_actual > 0 else 0
+    else:
+        avg_forecast = 0
+        forecast_change = 0
+    
+    # Build the LLM prompt
+    prompt = f"""You are a sales forecasting analyst. Analyze the following forecast data and provide clear, factual insights.
+
+**FORECAST DATA:**
+- Model: {model or 'Unknown'}
+- Selection Reason: {selection or 'N/A'}
+- Accuracy (WAPE): {f'{wape:.1f}%' if wape is not None else 'N/A'}
+- Forecast Periods: {len(labels)}
+
+**HISTORICAL PERFORMANCE (Prior Year):**
+{chr(10).join([f"  {labels[i]}: {int(actual[i])} units" for i in range(len(labels)) if i < len(actual)])}
+- Average: {int(avg_actual)} units/month
+- Strongest: {strongest_month}
+- Weakest: {weakest_month}
+
+**FORECAST (This Year):**
+{chr(10).join([f"  {labels[i]}: {int(forecast_vals[i])} units (YoY: {yoy[i]:+.0f}%)" for i in range(len(labels))])}
+- Average: {int(avg_forecast)} units/month
+- Overall Change: {forecast_change:+.1f}% vs prior year
+
+**YOUR TASK:**
+Write a concise, factual analysis in 3-5 bullet points:
+1. Why this forecast method was selected
+2. Key trends (strongest/weakest months, YoY patterns)
+3. Notable changes vs last year (be specific with numbers)
+
+**RULES:**
+- Be factual and specific (cite numbers and months)
+- Don't invent business reasons (e.g., don't say "due to holiday shopping" unless you know)
+- Focus on patterns in the DATA, not external causes
+- Keep each point to 1-2 sentences
+
+**FORMAT:**
+Return ONLY the bullet points, one per line, starting with "-".
+"""
+
+    try:
+        # Call the LLM
+        response = call_llm(
+            prompt=prompt,
+            model=llm_model,
+            temperature=0.3,  # Lower temperature for factual analysis
+            max_tokens=400,
+        )
+        
+        # Parse the LLM response into insights
+        insights = []
+        for line in response.strip().split('\n'):
+            line = line.strip()
+            if line.startswith('-') or line.startswith('•'):
+                insights.append(line.lstrip('-•').strip())
+            elif line and len(insights) > 0:
+                # Continue previous bullet if it's a continuation
+                insights[-1] += " " + line
+        
+        # Ensure we have at least some insights
+        if not insights:
+            raise ValueError("LLM returned no valid insights")
+        
+        # Split into basis (first 2) and drivers (rest)
+        basis = insights[:2] if len(insights) >= 2 else insights
+        drivers = insights[2:] if len(insights) > 2 else []
+        
+        return {
+            "basis": basis,
+            "drivers": drivers,
+            "insights": insights,
+            "source": "llm",
+        }
+        
+    except Exception as e:
+        # Fallback to Python-based explanation
+        print(f"⚠️  LLM explanation failed ({e}), using Python fallback")
+        return explain_forecast_basis(
+            historical=historical,
+            labels=labels,
+            actual=actual,
+            forecast_vals=forecast_vals,
+            yoy=yoy,
+            model=model,
+            selection=selection,
+            wape=wape,
+        )
+
+
 def build_demand_planning_view(
     historical: list,
     forecast: list,
@@ -825,11 +1064,17 @@ def build_demand_planning_view(
     model: str | None = None,
     selection: str | None = None,
     wape: float | None = None,
+    use_llm_explanation: bool = True,
+    llm_model: str = "deepseek-r1:7b",
 ) -> dict:
     """Year-over-year planning chart: prior-year actual vs forecast on the same calendar months.
 
     Matches the Dynamics 365 Demand Planning sample: one forecast line, a confidence
     band, prior-year actuals, a peak callout, and a monthly Actual / Forecast / YoY table.
+    
+    Args:
+        use_llm_explanation: If True, use LLM to generate forecast insights. If False, use Python-based templates.
+        llm_model: Which LLM model to use for explanation generation (default: deepseek-r1:7b for reasoning).
     """
     start = pd.Timestamp(window_start).normalize()
     end = pd.Timestamp(window_end).normalize()
@@ -937,16 +1182,30 @@ def build_demand_planning_view(
     honesty = _honest_method_note(model)
     is_naive_year = bool(model and "Seasonal naive (yearly)" in model)
 
-    rationale = explain_forecast_basis(
-        historical=historical,
-        labels=labels,
-        actual=actual,
-        forecast_vals=forecast_vals,
-        yoy=yoy,
-        model=model,
-        selection=selection,
-        wape=wape,
-    )
+    # Generate forecast explanation using LLM or Python templates
+    if use_llm_explanation:
+        rationale = explain_forecast_with_llm(
+            historical=historical,
+            labels=labels,
+            actual=actual,
+            forecast_vals=forecast_vals,
+            yoy=yoy,
+            model=model,
+            selection=selection,
+            wape=wape,
+            llm_model=llm_model,
+        )
+    else:
+        rationale = explain_forecast_basis(
+            historical=historical,
+            labels=labels,
+            actual=actual,
+            forecast_vals=forecast_vals,
+            yoy=yoy,
+            model=model,
+            selection=selection,
+            wape=wape,
+        )
     insights = rationale["insights"]
     if is_naive_year:
         insights.append(
@@ -1057,6 +1316,8 @@ FORECAST_MODEL_IDS = {
     "Moving average (7-day)": "moving_average",
     "Prophet": "prophet",
     "ETS (Holt-Winters)": "ets",
+    "Croston (SBA)": "croston_sba",
+    "TSB": "tsb",
 }
 
 
@@ -1186,10 +1447,31 @@ def generate_forecast(
         })
         if use_prophet:
             eligible_names.add("Prophet")
+
+        croston_wape = _backtest_croston_sba(y, holdout) if holdout else None
+        candidates.append({
+            "id": "croston_sba",
+            "name": "Croston (SBA)",
+            "wape": croston_wape,
+            "baseline": False,
+        })
+        eligible_names.add("Croston (SBA)")
+
+        tsb_wape = _backtest_tsb(y, holdout) if holdout else None
+        candidates.append({
+            "id": "tsb",
+            "name": "TSB",
+            "wape": tsb_wape,
+            "baseline": False,
+        })
+        eligible_names.add("TSB")
+
         builders = {
             "Prophet": lambda: forecast_with_prophet(historical_df, days_ahead=days_ahead),
             "Moving average (7-day)": lambda: forecast_simple_moving_average(historical_df, days_ahead=days_ahead),
             "Seasonal naive (7-day)": lambda: _seasonal_naive_result(historical_df, days_ahead=days_ahead),
+            "Croston (SBA)": lambda: forecast_with_croston_sba(historical_df, days_ahead=days_ahead),
+            "TSB": lambda: forecast_with_tsb(historical_df, days_ahead=days_ahead),
         }
         default_winner = "Prophet" if use_prophet else "Moving average (7-day)"
         default_reason = "not enough history to backtest; defaulted to short-horizon model"

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxMenuItemDisplay xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns="Microsoft.Dynamics.AX.Metadata.V6">
+	<Name>TISCWDAdjustment</Name>
+	<HelpText>Capture and inquire SC WD adjustment transactions.</HelpText>
+	<Label>SC WD adjustment</Label>
+	<Object>TISCWDAdjustment</Object>
+</AxMenuItemDisplay>
